@@ -11,7 +11,7 @@ BIN_DIR = bin
 # Files
 SOURCES = $(wildcard $(SRC_DIR)/*.c)
 OBJECTS = $(SOURCES:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
-EXECUTABLE = $(BIN_DIR)/my_program
+EXECUTABLE = $(BIN_DIR)/gds_sandbox
 
 # Targets
 all: $(EXECUTABLE)

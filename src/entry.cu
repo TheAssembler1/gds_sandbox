@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <cufile.h>
+#include <cuda_runtime.h>
 
 #define USAGE_DETAILS \
   "Arguments:\n" \
@@ -10,12 +12,7 @@
   "  <dir>        : (single_dir, many_dir)  Specify directory type"
 
 #define DATA_OUTPUT_DIR "./data"
-
-#define DIR_PREFIX "/dir"
-#define DIR_SINGLE_SUFFIX "_single"
-#define DIR_MULTI_SUFFIX "_multi"
-
-#define FILE_PREFIX "/file"
+#define FILE_PREFIX "/file_"
 #define FILE_SUFFIX ".data"
 
 // FIXME: this should be a cmd arg
@@ -23,7 +20,16 @@ unsigned int num_files = 100;
 unsigned int small_file_size_bytes = 512;
 unsigned int big_file_size_bytes = 4096;
 
-void validate_args(const char* gen_files, const char* file, const char* dir);
+void validate_args(const char* gen_files, const char* file);
+void create_data(const char* file);
+
+__global__ void simple_gpu_kernel() {
+  printf("<==============================>\n");
+  printf("starting simple_gpu_kernel\n");
+
+  printf("finishing simple_gpu_kernel\n");
+  printf("<==============================>\n");
+}
 
 int main(int argc, char** argv) {
   if(argc < 3) {
@@ -34,14 +40,20 @@ int main(int argc, char** argv) {
   /* grab cmd args */
   const char* gen_files = argv[1];
   const char* file = argv[2];
-  const char* dir = argv[3];
 
-  validate_args(gen_files, file, dir);
+  validate_args(gen_files, file);
 
   /* check and generate files and folders */
   if(!strcmp(gen_files, "true")) {
-    create_data(file, dir);
+    printf("generating test data\n");
+    create_data(file);
+  } else {
+    printf("assuming test data is already generated\n");
   }
+
+  /* run gpu kernel */
+  simple_gpu_kernel<<<1, 1>>>();
+  cudaDeviceSynchronize();
 
   return 0;
 }
@@ -60,13 +72,13 @@ static void create_directory(const char* dir) {
   }
 }
 
-static void create_file(const char* file, const char* dir, int file_num) {
+static void create_file(const char* file, int file_num) {
   char file_num_str[32];
   sprintf(file_num_str, "%d", file_num);
-  size_t file_name_len = strlen(dir) + strlen(FILE_PREFIX) + strlen(file_num_str) + strlen(FILE_SUFFIX)  + 1;
+  size_t file_name_len = strlen(DATA_OUTPUT_DIR) + strlen(FILE_PREFIX) + strlen(file_num_str) + strlen(FILE_SUFFIX)  + 1;
   char* file_name = (char*)malloc(file_name_len * sizeof(char));
 
-  strcpy(file_name, dir);
+  strcpy(file_name, DATA_OUTPUT_DIR);
   strcat(file_name, FILE_PREFIX);
   strcat(file_name, file_num_str);
   strcat(file_name, FILE_SUFFIX);
@@ -97,38 +109,16 @@ static void create_file(const char* file, const char* dir, int file_num) {
   free(file_name);
 }
 
-void create_data(const char* file, const char* dir) {
+void create_data(const char* file) {
   /* create main data directory */
   create_directory(DATA_OUTPUT_DIR);
-
   
-  char* dir_name = NULL;
-  size_t dir_name_len = strlen(DATA_OUTPUT_DIR) + strlen(DIR_PREFIX) + 1;
-
-  if(!strcmp(dir, "single_dir")) {
-    dir_name_len += strlen(DIR_SINGLE_SUFFIX);
-    dir_name = (char*)malloc(dir_name_len * sizeof(char));
-
-    strcpy(dir_name, DATA_OUTPUT_DIR);
-    strcat(dir_name, DIR_PREFIX);
-    strcat(dir_name, DIR_SINGLE_SUFFIX);
-
-    create_directory(dir_name); 
-
-    for(int i = 1; i <= num_files; i++) {
-      create_file(file, dir_name, i);
-    }
-  } else {
-    /*dir_name_len += strlen(DIR_MULTI_SUFFIX);
-    dir_suffix = DIR_MULTI_SUFFIX;*/
-    printf("mult_dir not DONE\n");
-    exit(1);
+  for(int i = 1; i <= num_files; i++) {
+    create_file(file, i);
   }
-
-  free(dir_name);
 }
 
-void validate_args(const char* gen_files, const char* file, const char* dir) {
+void validate_args(const char* gen_files, const char* file) {
   if(strcmp(gen_files, "true") && strcmp(gen_files, "false")) {
     printf("invalid gen_files\n");
     printf("%s\n", USAGE_DETAILS);
@@ -136,13 +126,7 @@ void validate_args(const char* gen_files, const char* file, const char* dir) {
   } 
 
   if(strcmp(file, "small_files") && strcmp(file, "big_files")) {
-    printf("invalid small_files\n");
-    printf("%s\n", USAGE_DETAILS);
-    exit(1);
-  }
-
-  if(strcmp(dir, "single_dir") && strcmp(dir, "many_dir")) {
-    printf("invalid dir\n");
+    printf("invalid file\n");
     printf("%s\n", USAGE_DETAILS);
     exit(1);
   }

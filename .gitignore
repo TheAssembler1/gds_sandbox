@@ -1,3 +1,9 @@
 bin
 build
 data
+*.dot
+*.png
+*.out
+.vscode
+*.log
+*.txt

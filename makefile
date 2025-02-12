@@ -1,7 +1,7 @@
 # Compiler and linker
 CC = /usr/local/cuda-12.0/bin/nvcc
-CFLAGS =
-LDFLAGS =
+CFLAGS = -pg
+LDFLAGS = -pg -lcufile
 
 # Directories
 SRC_DIR = src

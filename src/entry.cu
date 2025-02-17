@@ -57,10 +57,10 @@
 
 // FIXME: this should be a cmd arg
 unsigned long num_files = 10;
-unsigned long big_file_size_bytes = 136870912;
+unsigned long big_file_size_bytes = 206870912;
 unsigned long small_file_size_bytes = 512;
 
-void validate_args(const char* gen_files, const char* file);
+void validate_args(const char* gen_files, const char* file, const char* data_movement_op, const char* data_movement_type);
 void create_data(const char* file);
 void run_gpu_operations();
 
@@ -132,7 +132,7 @@ static int run(int argc, char** argv) {
   __data_movement_type = argv[3];
   num_files = atoi(argv[4]);
 
-  validate_args(gen_files, file);
+  validate_args(gen_files, file, "read", __data_movement_type);
 
   /* check and generate files and folders */
   if(!strcmp(gen_files, "true")) {
@@ -175,15 +175,19 @@ int main(int argc, char** argv) {
 
 typedef enum {
   READ,
-  INVALID_DATA_MOVEMENT_OP
+  INVALID_DATA_MOVEMENT_OP,
+  DATA_MOVEMENT_OP_TYPE_SIZE
 } data_movement_op_t;
+const char* data_movement_op_strings[] = {"read", "invalid_data_movement_op"};
 
 typedef enum {
   MALLOC,
   GPU_DIRECT,
   MMAP,
-  INVALID_DATA_MOVEMENT_TYPE
+  INVALID_DATA_MOVEMENT_TYPE,
+  DATA_MOVEMENT_TYPE_SIZE
 } data_movement_type_t;
+const char* data_movement_type_strings[] = {"malloc", "gpu_direct", "mmap", "invalid_data_movement_type"};
 
 // FIXME: file size
 size_t file_size = 0;
@@ -539,7 +543,7 @@ void create_data(const char* file) {
   }
 }
 
-void validate_args(const char* gen_files, const char* file) {
+void validate_args(const char* gen_files, const char* file, const char* data_movement_op, const char* data_movement_type) {
   if(strcmp(gen_files, "true") && strcmp(gen_files, "false")) {
     cpu_printf("invalid gen_files\n");
     cpu_printf("%s\n", USAGE_DETAILS);
@@ -548,6 +552,34 @@ void validate_args(const char* gen_files, const char* file) {
 
   if(strcmp(file, "small_files") && strcmp(file, "big_files")) {
     cpu_printf("invalid file\n");
+    cpu_printf("%s\n", USAGE_DETAILS);
+    exit(1);
+  }
+
+  bool found = false;
+  for(int i = 0; i < DATA_MOVEMENT_OP_TYPE_SIZE; i++) {
+    if(strcmp(data_movement_op, data_movement_op_strings[i])) {
+      found = true;
+      break;
+    }
+  }
+
+  if(!found) {
+    cpu_printf("invalid data movement operation\n");
+    cpu_printf("%s\n", USAGE_DETAILS);
+    exit(1);
+  }
+
+  found = false;
+  for(int i = 0; i < DATA_MOVEMENT_TYPE_SIZE; i++) {
+    if(strcmp(data_movement_type, data_movement_type_strings[i])) {
+      found = true;
+      break;
+    }
+  }
+
+  if(!found) {
+    cpu_printf("invalid data movement type\n");
     cpu_printf("%s\n", USAGE_DETAILS);
     exit(1);
   }

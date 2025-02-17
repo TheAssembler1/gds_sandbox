@@ -9,6 +9,9 @@
 #include <cufile.h>
 #include <cuda_runtime.h>
 
+#include "log.h"
+#include "profiler.h"
+
 /*
  * Best Practice: https://docs.nvidia.com/gpudirect-storage/best-practices-guide
  * API Reference: https://docs.nvidia.com/gpudirect-storage/api-reference-guide/index.html
@@ -17,43 +20,17 @@
 
 #define USAGE_DETAILS \
   "Arguments:\n" \
-  "  <gen_files>  : (true or false)  Set to true to generate files, false otherwise\n" \
-  "  <file>       : (small_files, big_files)  Specify file type\n" \
-  "  <dir>        : (single_dir, many_dir)  Specify directory type" \
-  "  <data_movement_type>        : (posix, gpu_direct, mmap) How to move data between GPU, CPU, and storage" \
-  "  <num_files>        : (single_dir, many_dir)  Specify number of files to operate on"
+  "  <gen_files>          : (true or false)  Set to true to generate files, false otherwise\n" \
+  "  <file>               : (small_files, big_files)  Specify file type\n" \
+  "  <dir>                : (single_dir, many_dir)  Specify directory type" \
+  "  <data_movement_type> : (posix, gpu_direct, mmap) How to move data between GPU, CPU, and storage" \
+  "  <num_files>          : (single_dir, many_dir)  Specify number of files to operate on"
 
 #define DATA_OUTPUT_DIR "./data"
 #define FILE_PREFIX "/file_"
 #define FILE_SUFFIX ".data"
 
 #define STATUS_UPDATE_FILE_NUM 100
-
-#define PROFILE_PREFIX "PROFILE INFO: "
-
-// NOTE: printing macros
-#undef DEBUG_KERNEL_FUNC
-#define CPU_DEBUG
-#undef CPU_STATUS_DEBUG
-
-#ifdef CPU_DEBUG
-    #define cpu_printf(f_, ...) printf((f_), ##__VA_ARGS__)
-#else
-    #define cpu_printf(f_, ...) (void)0
-#endif
-
-#ifdef CPU_STATUS_DEBUG
-    #define cpu_status_printf(f_, ...) printf((f_), ##__VA_ARGS__)
-#else
-    #define cpu_status_printf(f_, ...) (void)0
-#endif
-
-#ifdef GPU_DEBUG
-    #define gpu_printf(f_, ...) printf((f_), ##__VA_ARGS__)
-#else
-    #define gpu_printf(f_, ...) /* Do nothing */
-#endif
-
 
 // FIXME: this should be a cmd arg
 unsigned long num_files = 10;
@@ -73,38 +50,6 @@ char* __data_movement_type;
 // FIXME: this should be a parameter
 #define DATA_MOVEMENT_TYPE __data_movement_type
 #define DATA_MOVEMENT_OP "read"
-
-#define TIME_FUNC_RET(func, inc_var, ret) { \
-  struct timeval start, end; \
-  gettimeofday(&start, NULL); \
-  ret = func; \
-  gettimeofday(&end, NULL); \
-  long double elapsed_time = (end.tv_sec - start.tv_sec) * 1000.0 + \
-                             (end.tv_usec - start.tv_usec) / 1000.0; \
-  inc_var += elapsed_time; \
-}
-
-#define TIME_FUNC(func, inc_var) { \
-  struct timeval start, end; \
-  gettimeofday(&start, NULL); \
-  func; \
-  gettimeofday(&end, NULL); \
-  long double elapsed_time = (end.tv_sec - start.tv_sec) * 1000.0 + \
-                             (end.tv_usec - start.tv_usec) / 1000.0; \
-  inc_var += elapsed_time; \
-}
-
-long double total_data_movement_time = 0;
-#define TIME_DATA_MOVEMENT_FUNC(func) TIME_FUNC(func, total_data_movement_time)
-#define TIME_DATA_MOVEMENT_FUNC_RET(func, ret) TIME_FUNC_RET(func, total_data_movement_time, ret)
-
-long double total_gpu_func_time = 0;
-#define TIME_GPU_EXECUTION_FUNC(func) TIME_FUNC(func, total_gpu_func_time)
-#define TIME_GPU_EXECUTION_FUNC_RET(func, ret) TIME_FUNC_RET(func, total_gpu_func_time, ret)
-
-long double total_metadata_time = 0;
-#define TIME_METADATA_FUNC(func) TIME_FUNC(func, total_metadata_time)
-#define TIME_METADATA_FUNC_RET(func, ret) TIME_FUNC_RET(func, total_metadata_time, ret)
 
 __global__ void simple_gpu_kernel(char* data, size_t size) {
   size_t index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -162,13 +107,6 @@ int main(int argc, char** argv) {
   int ret;
   TIME_FUNC_RET(run(argc, argv), total_runtime, ret);
 
-  /* profiling info should not be hidden behind debug */
-  printf("%s total time: %Lf ms\n", PROFILE_PREFIX, total_runtime);
-  printf("%s total data movement time: %Lf ms\n", PROFILE_PREFIX, total_data_movement_time);
-  printf("%s total gpu function execution time: %Lf ms\n", PROFILE_PREFIX, total_gpu_func_time);
-  printf("%s total metadata time: %Lf ms\n", PROFILE_PREFIX, total_metadata_time);
-  printf("%s average data movement per file time %Lf ms\n", PROFILE_PREFIX, total_data_movement_time / num_files);
-  printf("%s average gpu function execution time: %Lf ms\n", PROFILE_PREFIX, total_gpu_func_time / num_files);
 
   return ret;
 }
@@ -207,13 +145,16 @@ static void gpu_read_direct_data(char* filepath, int file_num) {
       return;
   }
 
-  TIME_METADATA_FUNC_RET(lseek(fd, 0, SEEK_END), file_size);
-  if (file_size == -1) {
+  off_t temp_size = 0;
+  TIME_METADATA_FUNC_RET(lseek(fd, 0, SEEK_END), temp_size);
+  if (temp_size == -1) {
       perror("File size retrieval failed");
       close(fd);
       return;
   }
   TIME_METADATA_FUNC(lseek(fd, 0, SEEK_SET));
+
+  file_size = (off_t)temp_size;
 
   buff_size = (size_t)file_size;
   memset(&cf_descr, 0, sizeof(CUfileDescr_t));
@@ -228,7 +169,7 @@ static void gpu_read_direct_data(char* filepath, int file_num) {
   }
 
   cudaError_t cuda_result = cudaMalloc(&device_data, buff_size);
-  if (cuda_result != CUDA_SUCCESS) {
+  if (cuda_result != cudaSuccess) {
       fprintf(stderr, "CUDA malloc failed: %s\n", cudaGetErrorString(cuda_result));
       cuFileHandleDeregister(cf_handle);
       cuFileDriverClose();
@@ -273,13 +214,17 @@ static void gpu_read_mmap_data(char* file_path, int file_num) {
       exit(1);
   }
 
-  TIME_METADATA_FUNC_RET(lseek(fd, 0, SEEK_END), file_size);
-  if (file_size == -1) {
+  off_t temp_size = 0;
+
+  TIME_METADATA_FUNC_RET(lseek(fd, 0, SEEK_END), temp_size);
+  if (temp_size == -1) {
       perror("error getting file size");
       close(fd);
       exit(1);
   }
   TIME_METADATA_FUNC(lseek(fd, 0, SEEK_SET));
+
+  file_size = (off_t)temp_size;
 
   host_data = mmap(NULL, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
   if (host_data == MAP_FAILED) {
@@ -319,13 +264,17 @@ static void gpu_read_malloc_data(char* file_path, int file_num) {
       exit(1);
   }
 
-  TIME_METADATA_FUNC_RET(lseek(fd, 0, SEEK_END), file_size);
-  if (file_size == -1) {
+  off_t temp_size = 0;
+
+  TIME_METADATA_FUNC_RET(lseek(fd, 0, SEEK_END), temp_size);
+  if (temp_size == -1) {
       perror("error getting file size");
       close(fd);
       exit(1);
   }
   TIME_METADATA_FUNC(lseek(fd, 0, SEEK_SET));
+
+  file_size = (off_t)temp_size;
 
   host_data = malloc(file_size);
   if (host_data == NULL) {
@@ -370,7 +319,7 @@ static void exec_gpu_function() {
     /* run gpu kernel */
     size_t block_size = THREADS_PER_BLOCK;  
     size_t grid_size = (file_size + DATA_PER_THREAD * block_size - 1) / (DATA_PER_THREAD * block_size);
-    cpu_printf("block size: %d, grid_size: %d\n", block_size, grid_size);
+    cpu_printf("block size: %zu, grid_size: %zu\n", block_size, grid_size);
     simple_gpu_kernel<<<grid_size, block_size>>>((char*)device_data, file_size);
 
     cuda_status = cudaGetLastError();

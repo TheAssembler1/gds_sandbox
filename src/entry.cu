@@ -12,6 +12,8 @@
 #include "log.h"
 #include "profiler.h"
 #include "read_to_gpu.h"
+#include "gpu_function.h"
+#include "util.h"
 
 /*
  * Best Practice: https://docs.nvidia.com/gpudirect-storage/best-practices-guide
@@ -19,84 +21,45 @@
  * API Reference PDF: https://docs.nvidia.com/cuda/archive/11.6.0/pdf/cuFile_API.pdf
  */
 
-#define USAGE_DETAILS \
-  "Arguments:\n" \
-  "  <gen_files>          : (true or false)  Set to true to generate files, false otherwise\n" \
-  "  <file>               : (small_files, big_files)  Specify file type\n" \
-  "  <dir>                : (single_dir, many_dir)  Specify directory type" \
-  "  <data_movement_type> : (posix, gpu_direct, mmap) How to move data between GPU, CPU, and storage" \
-  "  <num_files>          : (single_dir, many_dir)  Specify number of files to operate on"
-
-#define DATA_OUTPUT_DIR "./data"
-#define FILE_PREFIX "/file_"
-#define FILE_SUFFIX ".data"
-
-#define STATUS_UPDATE_FILE_NUM 100
-
-// FIXME: this should be a cmd arg
-unsigned long num_files = 10;
-unsigned long big_file_size_bytes = 5;
-unsigned long small_file_size_bytes = 512;
-
-void validate_args(const char* gen_files, const char* file, const char* data_movement_op, const char* data_movement_type);
-void create_data(const char* file);
-void run_gpu_operations();
-
-// FIXME: this should be a cmd arg
-#define DATA_PER_THREAD 128
-#define THREADS_PER_BLOCK 256
-
-char* __data_movement_type;
-
-// FIXME: this should be a parameter
-#define DATA_MOVEMENT_TYPE __data_movement_type
-#define DATA_MOVEMENT_OP "read"
-
-__global__ void simple_gpu_kernel(char* data, size_t size) {
-  size_t index = blockIdx.x * blockDim.x + threadIdx.x;
-  gpu_printf("starting simple_gpu_kernel with index %d\n", index);
-
-  if (index * DATA_PER_THREAD < size) {
-    size_t end_index = min((index + 1) * DATA_PER_THREAD, size);
-    for (size_t i = index * DATA_PER_THREAD; i < end_index; i++) {
-      gpu_printf("%c", data[i]);
-    }
-  }
-}
-
 static int run(int argc, char** argv) {
   if(argc < 5) {
     printf("%s\n", USAGE_DETAILS);
     exit(1);
   }
+
+  validate_args(argv[1], argv[2], argv[3], argv[4]);
   
   /* grab cmd args */
-  const char* gen_files = argv[1];
-  const char* file = argv[2];
+  if(!strcmp(argv[1], "true")) {
+    gen_files = true;
+  } else {
+    gen_files = false;
+  }
 
-  // FIXME: hackey way to get args and not validating them
-  __data_movement_type = argv[3];
+  if(!strcmp(argv[2], "big_files")) {
+    file_size = big_file_size_bytes;
+  } else {
+    file_size = small_file_size_bytes;
+  }
+
+  data_movement_type_string = argv[3];
   num_files = atoi(argv[4]);
 
-  validate_args(gen_files, file, "read", __data_movement_type);
-
   /* check and generate files and folders */
-  if(!strcmp(gen_files, "true")) {
-    printf("generating test data with %lu files each files is %lu bytes\n", num_files, big_file_size_bytes);
-    create_data(file);
-    return 0;
+  if(gen_files) {
+    printf("generating test data with %lu files each files is %lu bytes\n", num_files, file_size);
+    create_data();
   } else {
     printf("assuming test data is already generated\n");
   }
 
   /* config info should not be hidden behind debug */
-  // FIXME: assumes big files
   printf("total files: %lu\n", num_files);
-  printf("size of each file: %lu bytes\n", big_file_size_bytes);
+  printf("size of each file: %lu bytes\n", file_size);
   printf("total data movement size: %lu bytes %.2f megabytes\n", 
-    num_files * big_file_size_bytes, 
-    (num_files * big_file_size_bytes) / (1024.0 * 1024));
-  printf("data movement operation: %s, data movement type %s\n", DATA_MOVEMENT_OP, DATA_MOVEMENT_TYPE);
+    num_files * file_size, 
+    (num_files * file_size) / (1024.0 * 1024));
+  printf("data movement operation: %s, data movement type %s\n", data_movement_op_string, data_movement_type_string);
 
   run_gpu_operations();
 
@@ -108,247 +71,5 @@ int main(int argc, char** argv) {
   int ret;
   TIME_FUNC_RET(run(argc, argv), total_runtime, ret);
 
-
   return ret;
-}
-
-typedef enum {
-  READ,
-  INVALID_DATA_MOVEMENT_OP,
-  DATA_MOVEMENT_OP_TYPE_SIZE
-} data_movement_op_t;
-const char* data_movement_op_strings[] = {"read", "invalid_data_movement_op"};
-
-typedef enum {
-  MALLOC,
-  GPU_DIRECT,
-  MMAP,
-  INVALID_DATA_MOVEMENT_TYPE,
-  DATA_MOVEMENT_TYPE_SIZE
-} data_movement_type_t;
-const char* data_movement_type_strings[] = {"malloc", "gpu_direct", "mmap", "invalid_data_movement_type"};
-
-// FIXME: file size
-size_t file_size = 0;
-void *device_data = NULL;
-
-static void exec_gpu_function() {
-    cudaError_t cuda_status;
-
-    /* run gpu kernel */
-    size_t block_size = THREADS_PER_BLOCK;  
-    size_t grid_size = (file_size + DATA_PER_THREAD * block_size - 1) / (DATA_PER_THREAD * block_size);
-    cpu_printf("block size: %zu, grid_size: %zu\n", block_size, grid_size);
-    simple_gpu_kernel<<<grid_size, block_size>>>((char*)device_data, file_size);
-
-    cuda_status = cudaGetLastError();
-    if (cuda_status != cudaSuccess) {
-      cpu_printf("failed CUDA kernel launch: %s\n", cudaGetErrorString(cuda_status));
-    } else {
-      cpu_printf("successfully launched kernel.\n");
-    }
-
-    cuda_status = cudaDeviceSynchronize();
-    if(cuda_status != cudaSuccess) {
-      const char* error_string = cudaGetErrorString(cuda_status);
-      cpu_printf("error found when syncing device: %s\n", error_string);
-    } else {
-      cpu_printf("no errors when syncing device\n");
-    }
-}
-
-void run_gpu_operations() {
-  CUfileError_t file_status;
-  data_movement_op_t data_movement_op = INVALID_DATA_MOVEMENT_OP;
-  data_movement_type_t data_movement_type = INVALID_DATA_MOVEMENT_TYPE;
-
-  /* initialize  state of critical performance path */
-  file_status = cuFileDriverOpen();
-  if(file_status.err != CU_FILE_SUCCESS) {
-    cpu_printf("failed to initialize cuFileDriver\n");
-    exit(1);
-  } else {
-    cpu_printf("successfully initialize cuFileDriver\n");
-  }
-
-  cpu_printf("data movement type: %s, operation: %s\n", DATA_MOVEMENT_TYPE, DATA_MOVEMENT_OP);
-
-  if(!strcmp(DATA_MOVEMENT_TYPE, "posix")) {
-    data_movement_type = MALLOC;
-  } else if(!strcmp(DATA_MOVEMENT_TYPE, "gpu_direct")) {
-    data_movement_type = GPU_DIRECT;
-  } else if(!strcmp(DATA_MOVEMENT_TYPE, "mmap")) {
-    data_movement_type = MMAP;
-  } else {
-    cpu_printf("invalid data movement type\n");
-    exit(1);
-  }
-
-  if(!strcmp(DATA_MOVEMENT_OP, "read")) {
-    data_movement_op = READ;
-  } else {
-    cpu_printf("invalid data movement operation\n");
-    exit(1);
-  }
-
-  for(int i = 1; i <= num_files; i++) {
-    if(i % STATUS_UPDATE_FILE_NUM == 0) {
-      cpu_status_printf("processed %d files\n", i);
-    }
-
-    /* get file name */
-    char file_num_str[32];
-    sprintf(file_num_str, "%d", i);
-    size_t file_name_len = strlen(DATA_OUTPUT_DIR) + strlen(FILE_PREFIX) + strlen(file_num_str) + strlen(FILE_SUFFIX)  + 1;
-    char* file_name = (char*)malloc(file_name_len * sizeof(char));
-  
-    strcpy(file_name, DATA_OUTPUT_DIR);
-    strcat(file_name, FILE_PREFIX);
-    strcat(file_name, file_num_str);
-    strcat(file_name, FILE_SUFFIX);
-  
-    cpu_printf("reading file %s\n", file_name);
-
-    /* select data movement operation */
-    switch(data_movement_op) {
-      case READ:
-        switch(data_movement_type) {
-          case MALLOC:
-            device_data = gpu_read_malloc_data(file_name, i, &file_size);
-            break;
-          case GPU_DIRECT:
-            device_data = gpu_read_direct_data(file_name, i, &file_size);
-            break;
-          case MMAP:
-            device_data = gpu_read_mmap_data(file_name, i, &file_size);
-            break;
-          case INVALID_DATA_MOVEMENT_TYPE:
-            exit(1);
-            break;
-          default:
-            exit(1);
-            break;
-        }
-      break;
-      case INVALID_DATA_MOVEMENT_OP:
-        exit(1);
-        break;
-      default:
-        exit(1);
-        break;
-    }
-
-    /* execute the gpu function */
-    TIME_GPU_EXECUTION_FUNC(exec_gpu_function());
-
-    /* free memory buffer on GPU device */
-    cudaFree(device_data);
-  }
-
-  cuFileDriverClose();
-}
-
-static void create_directory(const char* dir) {
-  struct stat dir_stat;
-  if(stat(dir, &dir_stat) == -1) {
-    cpu_printf("creating directory %s\n", dir);
-
-    if(mkdir(dir, 0777) != 0) {
-      cpu_printf("failed to create directory %s", dir);
-      exit(1);
-    }
-  } else {
-    cpu_printf("directory %s already exists... skipping creation\n", dir);
-  }
-}
-
-static void create_file(const char* file, int file_num) {
-  char file_num_str[32];
-  sprintf(file_num_str, "%d", file_num);
-  size_t file_name_len = strlen(DATA_OUTPUT_DIR) + strlen(FILE_PREFIX) + strlen(file_num_str) + strlen(FILE_SUFFIX)  + 1;
-  char* file_name = (char*)malloc(file_name_len * sizeof(char));
-
-  strcpy(file_name, DATA_OUTPUT_DIR);
-  strcat(file_name, FILE_PREFIX);
-  strcat(file_name, file_num_str);
-  strcat(file_name, FILE_SUFFIX);
-
-  cpu_printf("creating file %s\n", file_name);
-
-  FILE* fp = fopen(file_name, "wb");
-  if(fp == NULL) {
-    cpu_printf("failed to open file %s\n", file_name);
-    exit(1);
-  }
-  
-  unsigned long data_size_bytes = small_file_size_bytes;
-  if(!strcmp(file, "big_files")) {
-    data_size_bytes = big_file_size_bytes;
-  }
-
-  char* data = (char*)malloc(data_size_bytes * sizeof(char));
-  size_t wb = fwrite(data, sizeof(char), data_size_bytes, fp);
-  if(wb != data_size_bytes) {
-    perror("fwrite");
-    exit(1);
-  }
-
-  fclose(fp);
-
-  free(data);
-  free(file_name);
-}
-
-void create_data(const char* file) {
-  /* create main data directory */
-  create_directory(DATA_OUTPUT_DIR);
-  
-  for(int i = 1; i <= num_files; i++) {
-    if(i % STATUS_UPDATE_FILE_NUM == 0) {
-      cpu_status_printf("created %d files\n", i);
-    }
-    create_file(file, i);
-  }
-}
-
-void validate_args(const char* gen_files, const char* file, const char* data_movement_op, const char* data_movement_type) {
-  if(strcmp(gen_files, "true") && strcmp(gen_files, "false")) {
-    cpu_printf("invalid gen_files\n");
-    cpu_printf("%s\n", USAGE_DETAILS);
-    exit(1);
-  } 
-
-  if(strcmp(file, "small_files") && strcmp(file, "big_files")) {
-    cpu_printf("invalid file\n");
-    cpu_printf("%s\n", USAGE_DETAILS);
-    exit(1);
-  }
-
-  bool found = false;
-  for(int i = 0; i < DATA_MOVEMENT_OP_TYPE_SIZE; i++) {
-    if(strcmp(data_movement_op, data_movement_op_strings[i])) {
-      found = true;
-      break;
-    }
-  }
-
-  if(!found) {
-    cpu_printf("invalid data movement operation\n");
-    cpu_printf("%s\n", USAGE_DETAILS);
-    exit(1);
-  }
-
-  found = false;
-  for(int i = 0; i < DATA_MOVEMENT_TYPE_SIZE; i++) {
-    if(strcmp(data_movement_type, data_movement_type_strings[i])) {
-      found = true;
-      break;
-    }
-  }
-
-  if(!found) {
-    cpu_printf("invalid data movement type\n");
-    cpu_printf("%s\n", USAGE_DETAILS);
-    exit(1);
-  }
 }

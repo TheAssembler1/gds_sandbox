@@ -17,8 +17,8 @@
 #include "profiler.h"
 #include "util.h"
 
-void* gpu_read_direct_data(char* filepath, int file_num, size_t* file_size);
-void* gpu_read_mmap_data(char* file_path, int file_num, size_t* file_size);
-void* gpu_read_malloc_data(char* file_path, int file_num, size_t* file_size);
+void* gpu_read_direct_data(char* filepath, int file_num);
+void* gpu_read_mmap_data(char* file_path, int file_num);
+void* gpu_read_malloc_data(char* file_path, int file_num);
 
 #endif

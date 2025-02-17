@@ -14,9 +14,9 @@
   "Arguments:\n" \
   "  <gen_files>          : (true or false)  Set to true to generate files, false otherwise\n" \
   "  <file>               : (small_files, big_files)  Specify file type\n" \
-  "  <dir>                : (single_dir, many_dir)  Specify directory type" \
-  "  <data_movement_type> : (malloc, gpu_direct, mmap) How to move data between GPU, CPU, and storage" \
-  "  <num_files>          : (single_dir, many_dir)  Specify number of files to operate on"
+  "  <dir>                : (single_dir, many_dir)  Specify directory type\n" \
+  "  <data_movement_type> : (malloc, gpu_direct, mmap) How to move data between GPU, CPU, and storage\n" \
+  "  <num_files>          : (single_dir, many_dir)  Specify number of files to operate on\n"
 
 #define ASSERT(check, format, ...) \
     if (!(check)) { \

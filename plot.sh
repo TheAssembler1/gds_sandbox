@@ -1,8 +1,10 @@
 #!/bin/bash
 
 set -e
+set -u
+set -x
 
-echo "parsing input data"
+echo "removing previous png plots"
+rm -f *.png
+
 python3 plot.py
-echo "creating png plots"
-gnuplot plot_script.gnu

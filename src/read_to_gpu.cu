@@ -10,7 +10,7 @@ void* gpu_read_direct_data(char* file_path, int file_num) {
     void* device_data;
   
     TIME_METADATA_FUNC_RET(open(file_path, O_RDONLY | O_DIRECT), fd);
-    ASSERT(fd > 0, "failed to open errno: %s", strerror(errno));
+    ASSERT(fd >= 0, "failed to open errno: %s", strerror(errno));
   
     off_t temp_size = 0;
     TIME_METADATA_FUNC_RET(lseek(fd, 0, SEEK_END), temp_size);
@@ -97,7 +97,6 @@ void* gpu_read_malloc_data(char* file_path, int file_num) {
   
     unsigned long bytes_read;
     TIME_DATA_MOVEMENT_STORAGE_TO_CPU_FUNC_RET(bytes_read = read(fd, host_data, file_size), bytes_read);
-    printf("file_path: %s, fd: %d, host_data: %p, bytes read: %d, file_size: %d\n", file_path, fd, host_data, bytes_read, file_size);
     ASSERT(bytes_read == file_size, "failed to read errno: %s", strerror(errno));
   
     cudaError_t cuda_status;

@@ -51,7 +51,7 @@ static void create_file(int file_num) {
     strcat(file_name, file_num_str);
     strcat(file_name, FILE_SUFFIX);
   
-    cpu_printf("creating file %s\n", file_name);
+    cpu_printf("creating file %s of size %lu bytes\n", file_name, file_size);
   
     FILE* fp = fopen(file_name, "wb");
     if(fp == NULL) {
@@ -60,6 +60,7 @@ static void create_file(int file_num) {
     }
   
     char* data = (char*)malloc(file_size * sizeof(char));
+    memset(data, FILE_BYTE_VALUE, file_size);
     size_t wb = fwrite(data, sizeof(char), file_size, fp);
     if(wb != file_size) {
       perror("fwrite");

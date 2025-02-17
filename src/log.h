@@ -5,7 +5,7 @@
 
 // NOTE: printing macros
 #undef DEBUG_KERNEL_FUNC
-#define CPU_DEBUG
+#undef CPU_DEBUG
 #undef CPU_STATUS_DEBUG
 
 #ifdef CPU_DEBUG

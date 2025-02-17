@@ -1,11 +1,11 @@
 #include "config.h"
 
-unsigned long num_files = 10;
-unsigned long big_file_size_bytes = 1024;
+unsigned long num_files;
+unsigned long big_file_size_bytes = 1048576;
 unsigned long small_file_size_bytes = 512;
 
-bool gen_files = NULL;
-size_t file_size = 0;
+bool gen_files;
+size_t file_size;
 
 char* data_movement_type_string = NULL;
 // FIMXE: this should be a cmd arg

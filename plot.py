@@ -13,7 +13,7 @@ for stat in unique_stats:
     stat_data = df[df['stat'] == stat]
     
     # Remove rows where value is 0
-    stat_data = stat_data[stat_data['value'] != 0]
+    #stat_data = stat_data[stat_data['value'] != 0]
     
     # Get the unique operations in the first column for grouping
     operations = stat_data['operation'].unique()

@@ -104,11 +104,13 @@ void run_gpu_operations() {
       }
   
       /* execute the gpu function */
+      cpu_printf("executing gpu function\n");
       TIME_GPU_EXECUTION_FUNC(exec_gpu_function());
   
       /* free memory buffer on GPU device */
+      cpu_printf("freeing gpu device data\n");
       TIME_GPU_MALLOC_FUNC(cudaFree(device_data));
     }
-  
+    
     TIME_METADATA_FUNC(cuFileDriverClose());
 }

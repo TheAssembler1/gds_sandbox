@@ -26,6 +26,8 @@ extern char* data_movement_op_string;
 
 extern unsigned int status_update_file_num;
 
+#define FILE_BYTE_VALUE 4
+
 typedef enum {
     READ,
     INVALID_DATA_MOVEMENT_OP,

@@ -49,6 +49,7 @@ static int run(int argc, char** argv) {
   if(gen_files) {
     printf("generating test data with %lu files each files is %lu bytes\n", num_files, file_size);
     create_data();
+    exit(0);
   } else {
     printf("assuming test data is already generated\n");
   }

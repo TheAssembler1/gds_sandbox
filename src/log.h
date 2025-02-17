@@ -26,9 +26,13 @@
     #define gpu_printf(f_, ...) /* Do nothing */
 #endif
 
-#define csv_printf(column_type, f_, ...) \
+#define CSV_LAYOUT "data_movement_type,data_movement_operation,num_files,timed_operation,time"
+
+#define csv_printf(f_, ...) \
     do { \
-        fprintf(stderr, "%s,", column_type); \
+        ASSERT(data_movement_type_string != NULL, "data_movement_type_string was NULL"); \
+        ASSERT(data_movement_op_string != NULL, "data_movement_op_string was NULL"); \
+        fprintf(stderr, "%s,%s,%d,", data_movement_type_string, data_movement_op_string, num_files); \
         fprintf(stderr, f_, ##__VA_ARGS__); \
         fprintf(stderr, "\n"); \
     } while (0)

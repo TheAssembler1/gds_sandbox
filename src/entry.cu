@@ -60,8 +60,16 @@ static int run(int argc, char** argv) {
     num_files * file_size, 
     (num_files * file_size) / (1024.0 * 1024));
   printf("data movement operation: %s, data movement type %s\n", data_movement_op_string, data_movement_type_string);
+  printf("CSV LAYOUT: %s\n", CSV_LAYOUT);
 
   run_gpu_operations();
+
+  printf("logging profiling info to csv\n");
+
+  csv_printf("%s,%f", "total_gpu_func_time", total_gpu_func_time);
+  csv_printf("%s,%f", "total_metadata_time", total_metadata_time);
+  csv_printf("%s,%f", "total_data_movement_storage_to_cpu_time", total_data_movement_storage_to_cpu_time);
+  csv_printf("%s,%f", "total_data_movement_cpu_to_gpu", total_data_movement_cpu_to_gpu);
 
   return 0;
 }

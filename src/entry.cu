@@ -64,13 +64,6 @@ static int run(int argc, char** argv) {
 
   run_gpu_operations();
 
-  printf("logging profiling info to csv\n");
-
-  csv_printf("%s,%f", "total_gpu_func_time", total_gpu_func_time);
-  csv_printf("%s,%f", "total_metadata_time", total_metadata_time);
-  csv_printf("%s,%f", "total_data_movement_storage_to_cpu_time", total_data_movement_storage_to_cpu_time);
-  csv_printf("%s,%f", "total_data_movement_cpu_to_gpu", total_data_movement_cpu_to_gpu);
-
   return 0;
 }
 
@@ -78,6 +71,17 @@ int main(int argc, char** argv) {
   long double total_runtime = 0;
   int ret;
   TIME_FUNC_RET(run(argc, argv), total_runtime, ret);
+
+  printf("logging profiling info to csv\n");
+
+  csv_printf("%s,%Lf", "total_runtime", total_runtime);
+  csv_printf("%s,%Lf", "total_gpu_func_time", total_gpu_func_time);
+  csv_printf("%s,%Lf", "total_metadata_time", total_metadata_time);
+  csv_printf("%s,%Lf", "total_data_movement_storage_to_cpu_time", total_data_movement_storage_to_cpu_time);
+  csv_printf("%s,%Lf", "total_data_movement_storage_to_gpu_time", total_data_movement_storage_to_gpu_time);
+  csv_printf("%s,%Lf", "total_data_movement_cpu_to_gpu", total_data_movement_cpu_to_gpu);
+  csv_printf("%s,%Lf", "total_cpu_malloc_time", total_cpu_malloc_time);
+  csv_printf("%s,%Lf", "total_gpu_malloc_time", total_gpu_malloc_time);
 
   return ret;
 }

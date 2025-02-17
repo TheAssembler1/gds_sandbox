@@ -35,6 +35,9 @@
         fprintf(stderr, "%s,%s,%d,", data_movement_type_string, data_movement_op_string, num_files); \
         fprintf(stderr, f_, ##__VA_ARGS__); \
         fprintf(stderr, "\n"); \
+        fprintf(stdout, "%s,%s,%d,", data_movement_type_string, data_movement_op_string, num_files); \
+        fprintf(stdout, f_, ##__VA_ARGS__); \
+        fprintf(stdout, "\n"); \
     } while (0)
 
 #endif

@@ -14,7 +14,6 @@ __global__ void simple_gpu_kernel(char* data, size_t size) {
     }
 }
 
-
 static void exec_gpu_function() {
   cudaError_t cuda_status;
 
@@ -38,7 +37,7 @@ void run_gpu_operations() {
     data_movement_type_t data_movement_type = INVALID_DATA_MOVEMENT_TYPE;
   
     /* initialize  state of critical performance path */
-    file_status = cuFileDriverOpen();
+    TIME_METADATA_FUNC_RET(cuFileDriverOpen(), file_status);
     ASSERT(file_status.err == CU_FILE_SUCCESS, "failed to cuFileDriverOpen status: %d", file_status);
     
     if(!strcmp(data_movement_type_string, "malloc")) {
@@ -108,8 +107,8 @@ void run_gpu_operations() {
       TIME_GPU_EXECUTION_FUNC(exec_gpu_function());
   
       /* free memory buffer on GPU device */
-      cudaFree(device_data);
+      TIME_GPU_MALLOC_FUNC(cudaFree(device_data));
     }
   
-    cuFileDriverClose();
+    TIME_METADATA_FUNC(cuFileDriverClose());
 }

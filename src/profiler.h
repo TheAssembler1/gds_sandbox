@@ -1,6 +1,5 @@
 #ifndef PROFILE_H
 
-extern long double total_data_movement_time;
 extern long double total_gpu_func_time;
 extern long double total_metadata_time;
 extern long double total_data_movement_storage_to_cpu_time;
@@ -25,9 +24,6 @@ extern long double total_data_movement_cpu_to_gpu;
                                (end.tv_usec - start.tv_usec) / 1000.0; \
     inc_var += elapsed_time; \
   }
-
-#define TIME_DATA_MOVEMENT_FUNC(func) TIME_FUNC(func, total_data_movement_time)
-#define TIME_DATA_MOVEMENT_FUNC_RET(func, ret) TIME_FUNC_RET(func, total_data_movement_time, ret)
 
 #define TIME_GPU_EXECUTION_FUNC(func) TIME_FUNC(func, total_gpu_func_time)
 #define TIME_GPU_EXECUTION_FUNC_RET(func, ret) TIME_FUNC_RET(func, total_gpu_func_time, ret)

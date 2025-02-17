@@ -11,6 +11,7 @@
 
 #include "log.h"
 #include "profiler.h"
+#include "read_to_gpu.h"
 
 /*
  * Best Practice: https://docs.nvidia.com/gpudirect-storage/best-practices-guide
@@ -34,7 +35,7 @@
 
 // FIXME: this should be a cmd arg
 unsigned long num_files = 10;
-unsigned long big_file_size_bytes = 206870912;
+unsigned long big_file_size_bytes = 5;
 unsigned long small_file_size_bytes = 512;
 
 void validate_args(const char* gen_files, const char* file, const char* data_movement_op, const char* data_movement_type);
@@ -131,188 +132,6 @@ const char* data_movement_type_strings[] = {"malloc", "gpu_direct", "mmap", "inv
 size_t file_size = 0;
 void *device_data = NULL;
 
-static void gpu_read_direct_data(char* filepath, int file_num) {
-  int fd;
-  ssize_t ret;
-  size_t buff_size;
-  CUfileError_t status;
-  CUfileDescr_t cf_descr;
-  CUfileHandle_t cf_handle;
-
-  TIME_METADATA_FUNC_RET(open(filepath, O_RDONLY | O_DIRECT), fd);
-  if (fd < 0) {
-      perror("File open failed");
-      return;
-  }
-
-  off_t temp_size = 0;
-  TIME_METADATA_FUNC_RET(lseek(fd, 0, SEEK_END), temp_size);
-  if (temp_size == -1) {
-      perror("File size retrieval failed");
-      close(fd);
-      return;
-  }
-  TIME_METADATA_FUNC(lseek(fd, 0, SEEK_SET));
-
-  file_size = (off_t)temp_size;
-
-  buff_size = (size_t)file_size;
-  memset(&cf_descr, 0, sizeof(CUfileDescr_t));
-  cf_descr.handle.fd = fd;
-  cf_descr.type = CU_FILE_HANDLE_TYPE_OPAQUE_FD;
-  status = cuFileHandleRegister(&cf_handle, &cf_descr);
-  if (status.err != CU_FILE_SUCCESS) {
-      fprintf(stderr, "cuFileHandleRegister failed\n");
-      cuFileDriverClose();
-      close(fd);
-      exit(1);
-  }
-
-  cudaError_t cuda_result = cudaMalloc(&device_data, buff_size);
-  if (cuda_result != cudaSuccess) {
-      fprintf(stderr, "CUDA malloc failed: %s\n", cudaGetErrorString(cuda_result));
-      cuFileHandleDeregister(cf_handle);
-      cuFileDriverClose();
-      close(fd);
-      exit(1);
-  }
-
-  status = cuFileBufRegister(device_data, buff_size, 0);
-  if (status.err != CU_FILE_SUCCESS) {
-      fprintf(stderr, "buffer registration failed with error code %d\n", status.err);
-    
-      cudaFree(device_data);
-      cuFileHandleDeregister(cf_handle);
-      cuFileDriverClose();
-      close(fd);
-      exit(1);
-  }
-
-  ret = cuFileRead(cf_handle, device_data, buff_size, 0, 0);
-  if (ret < 0) {
-      fprintf(stderr, "cuFileRead failed: %ld\n", ret);
-      exit(1);
-  }
-
-  status = cuFileBufDeregister(device_data);
-  if (status.err != CU_FILE_SUCCESS) {
-      fprintf(stderr, "Buffer deregistration failed\n");
-      exit(1);
-  }
-
-  cuFileHandleDeregister(cf_handle);
-  close(fd);
-}
-
-static void gpu_read_mmap_data(char* file_path, int file_num) {
-  int fd;
-  void *host_data = NULL;
-
-  TIME_METADATA_FUNC_RET(open(file_path, O_RDONLY), fd);
-  if (fd == -1) {
-      perror("error opening file");
-      exit(1);
-  }
-
-  off_t temp_size = 0;
-
-  TIME_METADATA_FUNC_RET(lseek(fd, 0, SEEK_END), temp_size);
-  if (temp_size == -1) {
-      perror("error getting file size");
-      close(fd);
-      exit(1);
-  }
-  TIME_METADATA_FUNC(lseek(fd, 0, SEEK_SET));
-
-  file_size = (off_t)temp_size;
-
-  host_data = mmap(NULL, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
-  if (host_data == MAP_FAILED) {
-      perror("error mapping file into memory");
-      close(fd);
-      exit(1);
-  }
-
-  cudaError_t cuda_status = cudaMalloc(&device_data, file_size);
-  if (cuda_status != cudaSuccess) {
-      cpu_printf("failed CUDA malloc: %s\n", cudaGetErrorString(cuda_status));
-      munmap(host_data, file_size); 
-      close(fd);
-      exit(1);
-  }
-
-  cuda_status = cudaMemcpy(device_data, host_data, file_size, cudaMemcpyHostToDevice);
-  if (cuda_status != cudaSuccess) {
-      cpu_printf("CUDA memcpy failed: %s\n", cudaGetErrorString(cuda_status));
-      cudaFree(device_data);
-      munmap(host_data, file_size);
-      close(fd);
-      exit(1);
-  }
-
-  munmap(host_data, file_size);
-  close(fd);
-}
-
-static void gpu_read_malloc_data(char* file_path, int file_num) {
-  int fd;
-  void *host_data = NULL;
-
-  TIME_METADATA_FUNC_RET(open(file_path, O_RDONLY), fd);
-  if (fd == -1) {
-      perror("error opening file");
-      exit(1);
-  }
-
-  off_t temp_size = 0;
-
-  TIME_METADATA_FUNC_RET(lseek(fd, 0, SEEK_END), temp_size);
-  if (temp_size == -1) {
-      perror("error getting file size");
-      close(fd);
-      exit(1);
-  }
-  TIME_METADATA_FUNC(lseek(fd, 0, SEEK_SET));
-
-  file_size = (off_t)temp_size;
-
-  host_data = malloc(file_size);
-  if (host_data == NULL) {
-      perror("error allocating memory for file data");
-      close(fd);
-      exit(1);
-  }
-
-  unsigned long bytes_read = read(fd, host_data, file_size);
-  printf("bytes read: %lu, file size: %lu\n", bytes_read, file_size);
-  if (bytes_read != file_size) {
-      perror("error reading file");
-      free(host_data);
-      close(fd);
-      exit(1);
-  }
-
-  cudaError_t cuda_status = cudaMalloc(&device_data, file_size);
-  if (cuda_status != cudaSuccess) {
-    cpu_printf("failed CUDA malloc: %s\n", cudaGetErrorString(cuda_status));
-      free(host_data);
-      close(fd);
-      exit(1);
-  }
-
-  cuda_status = cudaMemcpy(device_data, host_data, file_size, cudaMemcpyHostToDevice);
-  if (cuda_status != cudaSuccess) {
-      cpu_printf("CUDA memcpy failed: %s\n", cudaGetErrorString(cuda_status));
-      cudaFree(device_data);
-      free(host_data);
-      close(fd);
-      exit(1);
-  }
-
-  free(host_data);
-  close(fd);
-}
-
 static void exec_gpu_function() {
     cudaError_t cuda_status;
 
@@ -395,13 +214,13 @@ void run_gpu_operations() {
       case READ:
         switch(data_movement_type) {
           case MALLOC:
-            TIME_DATA_MOVEMENT_FUNC(gpu_read_malloc_data(file_name, i));
+            device_data = gpu_read_malloc_data(file_name, i, &file_size);
             break;
           case GPU_DIRECT:
-            TIME_DATA_MOVEMENT_FUNC(gpu_read_direct_data(file_name, i));
+            device_data = gpu_read_direct_data(file_name, i, &file_size);
             break;
           case MMAP:
-            TIME_DATA_MOVEMENT_FUNC(gpu_read_mmap_data(file_name, i));
+            device_data = gpu_read_mmap_data(file_name, i, &file_size);
             break;
           case INVALID_DATA_MOVEMENT_TYPE:
             exit(1);
